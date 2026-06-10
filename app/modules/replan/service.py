@@ -10,6 +10,7 @@ from app.models import (
 from app.store import store
 from app.modules.schedule.greedy_solver import validate_schedule
 from app.modules.schedule.service import run_schedule, _get_frozen_work_orders
+from app.time_utils import is_within_working_hours, is_holiday
 
 
 def _compute_diffs(
@@ -101,6 +102,23 @@ def manual_adjust(request: ManualAdjustRequest) -> ManualAdjustResult:
         new_wo.line_id = request.new_line_id
 
     if request.new_start_time is not None:
+        holidays = store.get_holidays()
+        if not is_within_working_hours(request.new_start_time, holidays):
+            if is_holiday(request.new_start_time.date(), holidays):
+                return ManualAdjustResult(
+                    success=False,
+                    message=f"开始时间 {request.new_start_time.strftime('%Y-%m-%d')} 是节假日，不可排产",
+                )
+            elif request.new_start_time.weekday() >= 5:
+                return ManualAdjustResult(
+                    success=False,
+                    message=f"开始时间 {request.new_start_time.strftime('%Y-%m-%d')} 是周末，不可排产",
+                )
+            else:
+                return ManualAdjustResult(
+                    success=False,
+                    message="开始时间不在工作时段内（8:00-16:00）",
+                )
         duration = new_wo.end_time - new_wo.start_time
         new_wo.start_time = request.new_start_time
         new_wo.end_time = request.new_start_time + duration

@@ -6,7 +6,7 @@ from app.models import (
     Priority, CustomerImportance, WorkerShift
 )
 from app.config import MOLD_SETUP_MINUTES, WORK_HOURS_PER_DAY
-from app.time_utils import calculate_end_time
+from app.time_utils import calculate_end_time, is_holiday
 from app.store import store
 
 
@@ -32,13 +32,18 @@ def _calculate_work_minutes(order: Order, line: ProductionLine) -> int:
     return int(days_needed * WORK_HOURS_PER_DAY * 60)
 
 
-def _get_schedule_start() -> datetime:
+def _get_schedule_start(holidays: list = None) -> datetime:
     today = date.today()
     days_until_monday = (7 - today.weekday()) % 7
     if days_until_monday == 0:
         days_until_monday = 7
     next_monday = today + timedelta(days=days_until_monday)
-    return datetime.combine(next_monday, time(8, 0))
+    start = datetime.combine(next_monday, time(8, 0))
+    holidays = holidays or []
+    while start.weekday() >= 5 or is_holiday(start.date(), holidays):
+        start += timedelta(days=1)
+        start = datetime.combine(start.date(), time(8, 0))
+    return start
 
 
 def _find_earliest_slot(
@@ -48,7 +53,7 @@ def _find_earliest_slot(
     existing_jobs: List[WorkOrder],
     product_code: str,
 ) -> Tuple[datetime, datetime, int]:
-    schedule_start = _get_schedule_start()
+    schedule_start = _get_schedule_start(holidays)
     shift_start_hour = 8
 
     line_jobs = sorted(
@@ -60,6 +65,8 @@ def _find_earliest_slot(
     setup_needed = MOLD_SETUP_MINUTES
 
     if not line_jobs:
+        if mold and line.current_mold and mold.mold_code == line.current_mold:
+            setup_needed = 0
         start = schedule_start
         end = calculate_end_time(start, work_minutes + setup_needed, holidays, shift_start_hour, WORK_HOURS_PER_DAY)
         return start, end, setup_needed
