@@ -1,0 +1,5 @@
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+pydantic==2.6.1
+ortools==9.8.3296
+python-dateutil==2.8.2
