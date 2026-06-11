@@ -96,11 +96,14 @@ def solve_with_cp_sat(
 
     order_line_map: Dict[Tuple[str, str], dict] = {}
     all_intervals_by_line: Dict[str, list] = {line.line_id: [] for line in lines}
+    warnings: List[str] = []
 
     for order in orders_to_schedule:
-        for line in lines:
-            if order.product_code not in line.supported_products:
-                continue
+        compatible_lines = [l for l in lines if order.product_code in l.supported_products]
+        if not compatible_lines:
+            warnings.append(f"订单 {order.order_no} 无可适配产线，产品 {order.product_code}")
+            continue
+        for line in compatible_lines:
             work_minutes = _calculate_work_minutes(order, line)
             if work_minutes <= 0:
                 continue
@@ -187,7 +190,6 @@ def solve_with_cp_sat(
     solve_time = (datetime.now() - start_time).total_seconds()
 
     work_orders: List[WorkOrder] = []
-    warnings: List[str] = []
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         for key, info in order_line_map.items():

@@ -3,7 +3,8 @@ from typing import List, Optional, Tuple
 
 from app.models import (
     Order, ProductionLine, WorkOrder, ScheduleResult,
-    BottleneckItem, ObjectiveType, OrderStatus, WorkerShift
+    BottleneckItem, ObjectiveType, OrderStatus, WorkerShift,
+    UnscheduledOrder
 )
 from app.config import SOLVER_TIMEOUT_SECONDS
 from app.store import store
@@ -35,6 +36,32 @@ def _check_material_readiness(order: Order) -> Tuple[bool, List[str]]:
         if not mat.is_ok:
             issues.append(f"物料 {mat.material_code} 缺料")
     return len(issues) == 0, issues
+
+
+def _compute_unscheduled_orders(
+    orders_to_schedule: List[Order],
+    work_orders: List[WorkOrder],
+    lines: List[ProductionLine],
+) -> List[UnscheduledOrder]:
+    scheduled_nos = {wo.order_no for wo in work_orders}
+    unscheduled = []
+    for order in orders_to_schedule:
+        if order.order_no in scheduled_nos:
+            continue
+        compatible = [l for l in lines if order.product_code in l.supported_products]
+        if not compatible:
+            unscheduled.append(UnscheduledOrder(
+                order_no=order.order_no,
+                product_code=order.product_code,
+                reason=f"产品 {order.product_code} 无可适配产线，所有产线均不支持该产品",
+            ))
+        else:
+            unscheduled.append(UnscheduledOrder(
+                order_no=order.order_no,
+                product_code=order.product_code,
+                reason=f"产品 {order.product_code} 虽有适配产线但产能不足或求解器未能安排",
+            ))
+    return unscheduled
 
 
 def _analyze_bottlenecks(
@@ -152,6 +179,7 @@ def run_schedule(
         conflict_details = [c.reason for c in conflicts]
 
     bottlenecks = _analyze_bottlenecks(work_orders, orders_to_schedule)
+    unscheduled = _compute_unscheduled_orders(orders_to_schedule, work_orders, lines)
 
     store.set_scheduled_work_orders(work_orders)
 
@@ -163,6 +191,7 @@ def run_schedule(
     return ScheduleResult(
         work_orders=work_orders,
         bottleneck_analysis=bottlenecks,
+        unscheduled_orders=unscheduled,
         solver_used=solver_used,
         solve_time_seconds=round(solve_time, 2),
         has_conflicts=has_conflicts,
@@ -173,12 +202,16 @@ def run_schedule(
 def get_current_schedule() -> ScheduleResult:
     work_orders = store.get_scheduled_work_orders()
     orders = store.list_orders()
+    lines = store.list_lines()
     bottlenecks = _analyze_bottlenecks(work_orders, orders)
     has_conflicts, conflicts, _ = validate_schedule(work_orders)
+    orders_to_schedule = [o for o in orders if o.status not in (OrderStatus.COMPLETED, OrderStatus.CANCELLED)]
+    unscheduled = _compute_unscheduled_orders(orders_to_schedule, work_orders, lines)
 
     return ScheduleResult(
         work_orders=work_orders,
         bottleneck_analysis=bottlenecks,
+        unscheduled_orders=unscheduled,
         solver_used="cached",
         solve_time_seconds=0.0,
         has_conflicts=has_conflicts,

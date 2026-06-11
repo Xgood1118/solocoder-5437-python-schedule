@@ -135,9 +135,16 @@ class BottleneckItem(BaseModel):
     suggestion: str
 
 
+class UnscheduledOrder(BaseModel):
+    order_no: str
+    product_code: str
+    reason: str
+
+
 class ScheduleResult(BaseModel):
     work_orders: List[WorkOrder]
     bottleneck_analysis: List[BottleneckItem]
+    unscheduled_orders: List[UnscheduledOrder] = []
     solver_used: str
     solve_time_seconds: float
     has_conflicts: bool = False
